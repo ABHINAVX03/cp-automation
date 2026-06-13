@@ -1,9 +1,11 @@
 name: CP Contest Sync
 
 on:
+  push:
+    branches: [master, main]
   schedule:
-    - cron: '30 2 * * *'   # 8:00 AM IST = 2:30 AM UTC, runs daily
-  workflow_dispatch:         # allows manual trigger from GitHub UI
+    - cron: '30 2 * * *'
+  workflow_dispatch:       
 
 jobs:
   sync:
