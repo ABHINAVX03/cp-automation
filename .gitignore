@@ -1,0 +1,12 @@
+# Never commit these — they contain your Google account access
+credentials.json
+token.pickle
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Logs
+*.log

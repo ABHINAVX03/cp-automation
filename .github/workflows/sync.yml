@@ -1,0 +1,39 @@
+name: CP Contest Sync
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # 8:00 AM IST = 2:30 AM UTC, runs daily
+  workflow_dispatch:         # allows manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write credentials.json from secret
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+
+      - name: Write token.pickle from secret
+        run: echo '${{ secrets.GOOGLE_TOKEN }}' | base64 -d > token.pickle
+
+      - name: Run contest sync
+        run: python main.py
+
+      - name: Update token.pickle secret (if refreshed)
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          NEW_TOKEN=$(base64 -w 0 token.pickle)
+          gh secret set GOOGLE_TOKEN --body "$NEW_TOKEN" --repo "$REPO"
