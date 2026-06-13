@@ -145,3 +145,4 @@ Each platform gets its own color in Google Calendar:
 | Duplicate events | The tool auto-detects duplicates — safe to re-run anytime |
 | Token expired | Delete `token.pickle` and re-run `main.py` |
  
+ 
