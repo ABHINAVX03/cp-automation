@@ -92,92 +92,109 @@ def fetch_leetcode() -> list[dict]:
 # AtCoder  (atcoder-problems public API)
 # ─────────────────────────────────────────────
 def fetch_atcoder() -> list[dict]:
-    url = "https://kenkoooo.com/atcoder/resources/contests.json"
+    from bs4 import BeautifulSoup
+    from datetime import timedelta
+
+    url = "https://atcoder.jp/contests/?lang=en"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; CP-Bot/1.0)"}
     try:
-        data = requests.get(url, timeout=10).json()
-        now_ts = datetime.now(tz=timezone.utc).timestamp()
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        upcoming_div = soup.find("div", id="contest-table-upcoming")
+        if not upcoming_div:
+            return []
+
         contests = []
-        for c in data:
-            if c["start_epoch_second"] < now_ts:
+        for row in upcoming_div.find_all("tr")[1:]:   # skip header
+            cols = row.find_all("td")
+            if len(cols) < 3:
                 continue
-            start = _utc_to_ist(c["start_epoch_second"])
-            end = _utc_to_ist(
-                c["start_epoch_second"] + c["duration_second"])
+
+            time_tag = cols[0].find("time")
+            if not time_tag:
+                continue
+            start_str = time_tag.text.strip()         # ✅ "2026-06-21 19:00:00+0900"
+
+            link = cols[1].find("a")
+            if not link:
+                continue
+            name = link.text.strip()
+            contest_url = "https://atcoder.jp" + link["href"]
+
+            duration_str = cols[2].text.strip()       # "04:00"
+
+            try:
+                start = datetime.strptime(start_str.strip(), "%Y-%m-%d %H:%M:%S%z")
+                start = start.astimezone(IST)
+            except Exception:
+                continue
+            try:
+                h, m = map(int, duration_str.split(":"))
+                end = start + timedelta(hours=h, minutes=m)
+            except Exception:
+                end = start + timedelta(hours=2)
+
             contests.append({
                 "platform": "AtCoder",
-                "name": c["title"],
-                "start": start,
-                "end": end,
-                "url": f"https://atcoder.jp/contests/{c['id']}",
+                "name":     name,
+                "start":    start,
+                "end":      end,
+                "url":      contest_url,
             })
+
         return contests
+
     except Exception as e:
         print(f"[AtCoder] Error: {e}")
         return []
 
-
 # ─────────────────────────────────────────────
-# CodeChef  (kontests.net aggregator)
+# CodeChef  (official API — no auth needed)
 # ─────────────────────────────────────────────
 def fetch_codechef() -> list[dict]:
-    return _fetch_kontests("codechef.com")
-
-
-# ─────────────────────────────────────────────
-# HackerEarth + HackerRank  (kontests.net)
-# ─────────────────────────────────────────────
-def fetch_hackerearth() -> list[dict]:
-    return _fetch_kontests("hackerearth.com")
-
-
-def fetch_hackerrank() -> list[dict]:
-    return _fetch_kontests("hackerrank.com")
-
-
-def _fetch_kontests(host: str) -> list[dict]:
-    """
-    kontests.net is a free aggregator with a simple REST API.
-    Endpoint: GET /api?site=<host>
-    """
-    url = f"https://kontests.net/api/v1/{host.split('.')[0]}"
+    url = "https://www.codechef.com/api/list/contests/all"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; CP-Bot/1.0)"}
     try:
-        data = requests.get(url, timeout=10).json()
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("status") != "success":
+            return []
+
         contests = []
-        for c in data:
-            if c.get("status") == "BEFORE" or c.get("status") == "CODING":
-                start_str = c.get("start_time", "")
-                end_str = c.get("end_time", "")
-                try:
-                    start = datetime.fromisoformat(
-                        start_str.replace("Z", "+00:00")).astimezone(IST)
-                    end = datetime.fromisoformat(
-                        end_str.replace("Z", "+00:00")).astimezone(IST)
-                except Exception:
-                    continue
-                contests.append({
-                    "platform": host.split(".")[0].capitalize(),
-                    "name": c.get("name", "Unknown"),
-                    "start": start,
-                    "end": end,
-                    "url": c.get("url", ""),
-                })
+        for c in data.get("future_contests", []):
+            start_str = c.get("contest_start_date", "")
+            end_str   = c.get("contest_end_date",   "")
+            try:
+                # CodeChef returns IST times: "24 Jun 2026 20:00:00"
+                fmt   = "%d %b %Y %H:%M:%S"
+                start = datetime.strptime(start_str, fmt).replace(tzinfo=IST)
+                end   = datetime.strptime(end_str,   fmt).replace(tzinfo=IST)
+            except Exception:
+                continue
+
+            contests.append({
+                "platform": "CodeChef",
+                "name":     c.get("contest_name", "Unknown"),
+                "start":    start,
+                "end":      end,
+                "url":      f"https://www.codechef.com/{c.get('contest_code', '')}",
+            })
         return contests
+
     except Exception as e:
-        print(f"[{host}] Error: {e}")
+        print(f"[CodeChef] Error: {e}")
         return []
 
-
-# ─────────────────────────────────────────────
-# Aggregate all platforms
-# ─────────────────────────────────────────────
 def fetch_all_contests() -> list[dict]:
     fetchers = [
         fetch_codeforces,
         fetch_leetcode,
         fetch_atcoder,
-        fetch_codechef,
-        fetch_hackerearth,
-        fetch_hackerrank,
+        fetch_codechef,          
     ]
     all_contests = []
     for fn in fetchers:
@@ -186,6 +203,5 @@ def fetch_all_contests() -> list[dict]:
               f"{len(results)} upcoming contest(s)")
         all_contests.extend(results)
 
-    # Sort by start time
     all_contests.sort(key=lambda c: c["start"])
     return all_contests
